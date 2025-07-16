@@ -1,0 +1,45 @@
+[2025-06-06 09:04:05] Error in addBatch: Prepare failed: Unknown column 'batch_number' in 'field list'
+[2025-06-06 09:07:17] Error in addBatch: Prepare failed: Unknown column 'manufacture_date' in 'field list'
+[2025-06-06 09:07:41] Error in addBatch: Prepare failed: Unknown column 'manufacture_date' in 'field list'
+[2025-06-06 09:10:51] Error in updateBatch: batch_id is required
+[2025-06-06 09:17:45] Received POST request with action: add
+[2025-06-06 09:17:45] POST data: {"product_id":"4","quantity":"20","manufacture_date":"2025-06-19","expiry_date":"2025-06-10","action":"add"}
+[2025-06-06 09:17:45] Adding batch with data: {"product_id":4,"quantity":20,"manufacture_date":"2025-06-19","expiry_date":"2025-06-10"}
+[2025-06-06 09:17:45] Error in addBatch: Manufacture date cannot be after expiry date
+[2025-06-06 09:17:59] Received POST request with action: add
+[2025-06-06 09:17:59] POST data: {"product_id":"4","quantity":"20","manufacture_date":"2025-06-04","expiry_date":"2025-06-10","action":"add"}
+[2025-06-06 09:17:59] Adding batch with data: {"product_id":4,"quantity":20,"manufacture_date":"2025-06-04","expiry_date":"2025-06-10"}
+[2025-06-06 09:17:59] Generated batch number: BATCH-20250606-0001
+[2025-06-06 09:17:59] Batch added successfully with ID: 2
+[2025-06-06 09:20:29] Received POST request with action: delete
+[2025-06-06 09:20:29] POST data: {"action":"delete","batch_id":"undefined"}
+[2025-06-06 09:20:49] Received POST request with action: add
+[2025-06-06 09:20:49] POST data: {"product_id":"4","quantity":"20","manufacture_date":"2025-06-05","expiry_date":"2025-06-09","action":"add"}
+[2025-06-06 09:20:49] Adding batch with data: {"product_id":4,"quantity":20,"manufacture_date":"2025-06-05","expiry_date":"2025-06-09"}
+[2025-06-06 09:20:49] Generated batch number: BATCH-20250606-0001
+[2025-06-06 09:20:49] Batch added successfully with ID: 3
+[2025-06-06 09:21:19] Received POST request with action: add
+[2025-06-06 09:21:19] POST data: {"product_id":"5","quantity":"200","manufacture_date":"2025-06-03","expiry_date":"2025-06-30","action":"add"}
+[2025-06-06 09:21:19] Adding batch with data: {"product_id":5,"quantity":200,"manufacture_date":"2025-06-03","expiry_date":"2025-06-30"}
+[2025-06-06 09:21:19] Generated batch number: BATCH-20250606-0002
+[2025-06-06 09:21:19] Batch added successfully with ID: 4
+[2025-06-06 09:23:18] Error in getBatch: Batch not found
+[2025-06-06 09:23:21] Error in getBatch: Batch not found
+[2025-06-06 09:23:26] Received POST request with action: delete
+[2025-06-06 09:23:26] POST data: {"action":"delete","batch_id":"BATCH-20250606-0002"}
+[2025-06-06 09:23:42] Received POST request with action: add
+[2025-06-06 09:23:42] POST data: {"product_id":"4","quantity":"10","manufacture_date":"2025-06-01","expiry_date":"2025-06-30","action":"add"}
+[2025-06-06 09:23:42] Adding batch with data: {"product_id":4,"quantity":10,"manufacture_date":"2025-06-01","expiry_date":"2025-06-30"}
+[2025-06-06 09:23:42] Generated batch number: BATCH-20250606-0001
+[2025-06-06 09:23:42] Batch added successfully with ID: 5
+[2025-06-06 09:23:44] Error in getBatch: Batch not found
+[2025-06-06 09:48:17] Retrieved batch data: {"id":5,"batch_id":"BATCH-20250606-0001","product_id":4,"quantity":10,"manufacture_date":"2025-06-01","expiry_date":"2025-06-30","status":"available","created_at":"2025-06-06 09:23:42","product_name":"Summer Floral Dress"}
+[2025-06-06 09:48:38] Received POST request with action: add
+[2025-06-06 09:48:38] POST data: {"product_id":"5","quantity":"15","manufacture_date":"2025-06-02","expiry_date":"2025-06-20","action":"add"}
+[2025-06-06 09:48:38] Adding batch with data: {"product_id":5,"quantity":15,"manufacture_date":"2025-06-02","expiry_date":"2025-06-20"}
+[2025-06-06 09:48:38] Generated batch number: BATCH-20250606-0002
+[2025-06-06 09:48:38] Batch added successfully with ID: 6
+[2025-06-06 09:48:41] Retrieved batch data: {"id":6,"batch_id":"BATCH-20250606-0002","product_id":5,"quantity":15,"manufacture_date":"2025-06-02","expiry_date":"2025-06-20","status":"available","created_at":"2025-06-06 09:48:38","product_name":"test"}
+[2025-06-06 09:48:46] Retrieved batch data: {"id":5,"batch_id":"BATCH-20250606-0001","product_id":4,"quantity":10,"manufacture_date":"2025-06-01","expiry_date":"2025-06-30","status":"available","created_at":"2025-06-06 09:23:42","product_name":"Summer Floral Dress"}
+[2025-06-06 09:48:53] Received POST request with action: delete
+[2025-06-06 09:48:53] POST data: {"action":"delete","batch_id":"BATCH-20250606-0002"}

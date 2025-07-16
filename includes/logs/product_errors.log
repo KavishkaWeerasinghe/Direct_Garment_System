@@ -1,0 +1,41 @@
+[2025-06-06 09:40:35] Error in getProducts: Failed to prepare statement: Unknown column 'created_at' in 'order clause'
+[2025-06-06 09:41:51] Error in getProducts: Failed to prepare statement: Unknown column 'created_at' in 'order clause'
+[2025-06-06 09:41:52] Error in getProducts: Failed to prepare statement: Unknown column 'created_at' in 'order clause'
+[2025-06-06 09:41:54] Error in getProducts: Failed to prepare statement: Unknown column 'created_at' in 'order clause'
+[2025-06-06 09:44:15] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:44:18] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:44:20] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:45:28] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:49:20] getProducts called with params: {"category":null,"minPrice":null,"maxPrice":null,"sort":"featured","page":1,"perPage":12}
+[2025-06-06 09:49:20] Query: SELECT p.*, c.category_name 
+                 FROM product p 
+                 LEFT JOIN category c ON p.category_id = c.id ORDER BY p.id DESC LIMIT ? OFFSET ?
+[2025-06-06 09:49:20] Parameters: []
+[2025-06-06 09:49:20] Types: 
+[2025-06-06 09:49:20] Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:49:20] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:49:20] Categories Query: SELECT id, category_name FROM category ORDER BY category_name
+[2025-06-06 09:49:20] Failed to prepare categories statement: Unknown column 'id' in 'field list'
+[2025-06-06 09:49:20] Error in getCategories: Failed to prepare categories statement: Unknown column 'id' in 'field list'
+[2025-06-06 09:52:20] getProducts called with params: {"category":null,"minPrice":null,"maxPrice":null,"sort":"featured","page":1,"perPage":12}
+[2025-06-06 09:52:20] Query: SELECT p.*, c.category_name 
+                 FROM product p 
+                 LEFT JOIN category c ON p.category_id = c.category_id ORDER BY p.id DESC LIMIT ? OFFSET ?
+[2025-06-06 09:52:20] Parameters: []
+[2025-06-06 09:52:20] Types: 
+[2025-06-06 09:52:20] Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:52:20] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 09:52:20] Categories Query: SELECT cateogry_id, category_name FROM category ORDER BY category_name
+[2025-06-06 09:52:20] Failed to prepare categories statement: Unknown column 'cateogry_id' in 'field list'
+[2025-06-06 09:52:20] Error in getCategories: Failed to prepare categories statement: Unknown column 'cateogry_id' in 'field list'
+[2025-06-06 10:05:38] getProducts called with params: {"category":null,"minPrice":null,"maxPrice":null,"sort":"featured","page":1,"perPage":12}
+[2025-06-06 10:05:38] Query: SELECT p.*, c.category_name 
+                 FROM product p 
+                 LEFT JOIN category c ON p.category_id = c.category_id ORDER BY p.id DESC LIMIT ? OFFSET ?
+[2025-06-06 10:05:38] Parameters: []
+[2025-06-06 10:05:38] Types: 
+[2025-06-06 10:05:38] Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 10:05:38] Error in getProducts: Failed to prepare statement: Unknown column 'c.category_name' in 'field list'
+[2025-06-06 10:05:38] Categories Query: SELECT cateogry_id, category_name FROM category ORDER BY category_name
+[2025-06-06 10:05:38] Failed to prepare categories statement: Unknown column 'cateogry_id' in 'field list'
+[2025-06-06 10:05:38] Error in getCategories: Failed to prepare categories statement: Unknown column 'cateogry_id' in 'field list'
