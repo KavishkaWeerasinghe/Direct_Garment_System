@@ -1,0 +1,5 @@
+[2025-06-06 09:38:44] Error in addToCart: Failed to prepare product check statement: Unknown column 'stock_quantity' in 'field list'
+[2025-06-06 10:13:51] Error in addToCart: Failed to prepare product check statement: Unknown column 'stock_quantity' in 'field list'
+[2025-06-06 10:13:55] Error in addToCart: Failed to prepare product check statement: Unknown column 'stock_quantity' in 'field list'
+[2025-06-06 10:13:57] Error in addToCart: Failed to prepare product check statement: Unknown column 'stock_quantity' in 'field list'
+[2025-06-06 10:14:28] Error in addToCart: Failed to prepare product check statement: Unknown column 'stock_quantity' in 'field list'
