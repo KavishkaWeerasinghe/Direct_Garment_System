@@ -1,9 +1,8 @@
 <?php
 require_once __DIR__ . '/../components/header.php';
 require_once __DIR__ . '/../includes/Member.class.php';
-require_once __DIR__ . '/../../config/database.php';
 
-// Get the current manufacturer ID - use session first, then user_data
+// Get the current manufacturer ID
 $user_id = $_SESSION['manufacturer_id'] ?? ($user_data['id'] ?? null);
 
 // Validate that we have a valid user_id
@@ -11,20 +10,32 @@ if (!$user_id) {
     die("Error: No valid manufacturer ID found. Please log in again.");
 }
 
-
-
 // Initialize Member class
 $member = new Member($pdo);
 
+// Get member ID from URL
+$member_id = $_GET['id'] ?? null;
 
+if (!$member_id) {
+    header('Location: team.php');
+    exit();
+}
+
+// Get member data
+$member_data = $member->getMemberById($member_id, $user_id);
+
+if (!$member_data) {
+    $_SESSION['member_message'] = 'Member not found';
+    header('Location: team.php');
+    exit();
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $member_data = [
+    $update_data = [
         'first_name' => trim($_POST['first_name']),
         'last_name' => trim($_POST['last_name']),
         'email' => trim($_POST['email']),
-        'password' => $_POST['password'],
         'role' => $_POST['role'],
         'is_active' => isset($_POST['is_active']) ? 1 : 0
     ];
@@ -32,33 +43,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Basic validation
     $errors = [];
     
-    if (empty($member_data['first_name'])) {
+    if (empty($update_data['first_name'])) {
         $errors[] = 'First name is required';
     }
     
-    if (empty($member_data['last_name'])) {
+    if (empty($update_data['last_name'])) {
         $errors[] = 'Last name is required';
     }
     
-    if (empty($member_data['email'])) {
+    if (empty($update_data['email'])) {
         $errors[] = 'Email is required';
-    } elseif (!filter_var($member_data['email'], FILTER_VALIDATE_EMAIL)) {
+    } elseif (!filter_var($update_data['email'], FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'Please enter a valid email address';
     }
     
-    if (empty($member_data['password'])) {
-        $errors[] = 'Password is required';
-    } elseif (strlen($member_data['password']) < 6) {
-        $errors[] = 'Password must be at least 6 characters long';
-    }
-    
-    if (empty($member_data['role'])) {
+    if (empty($update_data['role'])) {
         $errors[] = 'Role is required';
     }
     
-    // If no errors, add the member
+    // If no errors, update the member
     if (empty($errors)) {
-        $result = $member->addMember($member_data, $user_id);
+        $result = $member->updateMember($member_id, $update_data, $user_id);
         
         if ($result['success']) {
             $_SESSION['member_message'] = $result['message'];
@@ -82,8 +87,8 @@ $available_roles = $member->getAvailableRoles();
         <div class="row">
             <div class="col-md-12">
                 <div class="page-header">
-                    <h1 class="page-title">Add New Team Member</h1>
-                    <p>Add a new member to your team</p>
+                    <h1 class="page-title">Edit Team Member</h1>
+                    <p>Update team member information</p>
                     <a href="team.php" class="btn btn-secondary">
                         <i class="fas fa-arrow-left"></i> Back to Team
                     </a>
@@ -99,17 +104,9 @@ $available_roles = $member->getAvailableRoles();
                     </div>
                 <?php endif; ?>
 
-                <?php if (isset($success_message)): ?>
-                    <div class="alert alert-success">
-                        <?php echo htmlspecialchars($success_message); ?>
-                        <br><br>
-                        <a href="team.php" class="btn btn-primary">View Team Members</a>
-                    </div>
-                <?php endif; ?>
-
                 <div class="card">
                     <div class="card-body">
-                        <form method="POST" class="member-form" id="teamMemberForm">
+                        <form method="POST" class="member-form" id="editMemberForm">
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="form-group">
@@ -118,7 +115,7 @@ $available_roles = $member->getAvailableRoles();
                                                class="form-control" 
                                                id="first_name" 
                                                name="first_name" 
-                                               value="<?php echo isset($_POST['first_name']) ? htmlspecialchars($_POST['first_name']) : ''; ?>"
+                                               value="<?php echo htmlspecialchars($member_data['first_name']); ?>"
                                                required>
                                     </div>
                                 </div>
@@ -129,7 +126,7 @@ $available_roles = $member->getAvailableRoles();
                                                class="form-control" 
                                                id="last_name" 
                                                name="last_name" 
-                                               value="<?php echo isset($_POST['last_name']) ? htmlspecialchars($_POST['last_name']) : ''; ?>"
+                                               value="<?php echo htmlspecialchars($member_data['last_name']); ?>"
                                                required>
                                     </div>
                                 </div>
@@ -141,19 +138,9 @@ $available_roles = $member->getAvailableRoles();
                                        class="form-control" 
                                        id="email" 
                                        name="email" 
-                                       value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
+                                       value="<?php echo htmlspecialchars($member_data['email']); ?>"
                                        required>
                                 <small class="form-text text-muted">This will be used for login</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="password">Password *</label>
-                                <input type="password" 
-                                       class="form-control" 
-                                       id="password" 
-                                       name="password" 
-                                       required>
-                                <small class="form-text text-muted">Minimum 6 characters</small>
                             </div>
 
                             <div class="form-group">
@@ -162,7 +149,7 @@ $available_roles = $member->getAvailableRoles();
                                     <option value="">Select a role</option>
                                     <?php foreach ($available_roles as $role_key => $role_name): ?>
                                         <option value="<?php echo $role_key; ?>" 
-                                                <?php echo (isset($_POST['role']) && $_POST['role'] === $role_key) ? 'selected' : ''; ?>>
+                                                <?php echo ($member_data['role'] === $role_key) ? 'selected' : ''; ?>>
                                             <?php echo htmlspecialchars($role_name); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -180,7 +167,7 @@ $available_roles = $member->getAvailableRoles();
                                            class="custom-control-input" 
                                            id="is_active" 
                                            name="is_active" 
-                                           <?php echo (!isset($_POST['is_active']) || $_POST['is_active']) ? 'checked' : ''; ?>>
+                                           <?php echo ($member_data['is_active']) ? 'checked' : ''; ?>>
                                     <label class="custom-control-label" for="is_active">
                                         Active member (can log in and access the system)
                                     </label>
@@ -189,7 +176,7 @@ $available_roles = $member->getAvailableRoles();
 
                             <div class="form-actions">
                                 <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-user-plus"></i> Add Team Member
+                                    <i class="fas fa-save"></i> Update Member
                                 </button>
                                 <a href="team.php" class="btn btn-secondary">Cancel</a>
                             </div>
@@ -276,39 +263,31 @@ $available_roles = $member->getAvailableRoles();
 </style>
 
 <script>
-// Form validation and submission handling for team members
+// Form validation and submission handling for team member editing
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('teamMemberForm');
+    const form = document.getElementById('editMemberForm');
     if (form) {
-        console.log('Team member form found, setting up validation...');
+        console.log('Edit member form found, setting up validation...');
         
         form.addEventListener('submit', function(e) {
-            console.log('Team member form submit event triggered');
+            console.log('Edit member form submit event triggered');
             
             // Basic client-side validation
             const firstName = document.getElementById('first_name').value.trim();
             const lastName = document.getElementById('last_name').value.trim();
             const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
             const role = document.getElementById('role').value;
             
-            console.log('Team member form data:', { firstName, lastName, email, password: '***', role });
+            console.log('Edit member form data:', { firstName, lastName, email, role });
             
-            if (!firstName || !lastName || !email || !password || !role) {
+            if (!firstName || !lastName || !email || !role) {
                 e.preventDefault();
                 alert('Please fill in all required fields.');
-                console.log('Team member validation failed - missing fields');
+                console.log('Edit member validation failed - missing fields');
                 return false;
             }
             
-            if (password.length < 6) {
-                e.preventDefault();
-                alert('Password must be at least 6 characters long.');
-                console.log('Team member validation failed - password too short');
-                return false;
-            }
-            
-            console.log('Team member validation passed, allowing form submission');
+            console.log('Edit member validation passed, allowing form submission');
             
             // Show processing state
             const submitBtn = form.querySelector('button[type="submit"]');
@@ -324,11 +303,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return true;
         });
     } else {
-        console.error('Team member form not found!');
+        console.error('Edit member form not found!');
     }
 });
-
-
 </script>
 
 <?php require_once __DIR__ . '/../components/footer.php'; ?>

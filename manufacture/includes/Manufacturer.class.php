@@ -233,13 +233,13 @@ class Manufacturer {
             $mail->isSMTP();
             $mail->Host       = SMTP_HOST;
             $mail->SMTPAuth   = true;
-            $mail->Username   = SMTP_USER;
-            $mail->Password   = SMTP_PASS;
-            $mail->SMTPSecure = SMTP_SECURE;
+            $mail->Username   = SMTP_USERNAME;
+            $mail->Password   = SMTP_PASSWORD;
+            $mail->SMTPSecure = SMTP_ENCRYPTION;
             $mail->Port       = SMTP_PORT;
 
             // Recipients
-            $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+            $mail->setFrom(SMTP_USERNAME, SITE_NAME);
             $mail->addAddress($email);
             
             // Content
@@ -273,13 +273,13 @@ class Manufacturer {
             $mail->isSMTP();
             $mail->Host       = SMTP_HOST;
             $mail->SMTPAuth   = true;
-            $mail->Username   = SMTP_USER;
-            $mail->Password   = SMTP_PASS;
-            $mail->SMTPSecure = SMTP_SECURE;
+            $mail->Username   = SMTP_USERNAME;
+            $mail->Password   = SMTP_PASSWORD;
+            $mail->SMTPSecure = SMTP_ENCRYPTION;
             $mail->Port       = SMTP_PORT;
 
             // Recipients
-            $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+            $mail->setFrom(SMTP_USERNAME, SITE_NAME);
             $mail->addAddress($email);
             
             // Content

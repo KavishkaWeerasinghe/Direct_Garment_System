@@ -4,6 +4,22 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
+// Suppress warnings that might be output as HTML
+error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE);
+
+// Start output buffering to catch any unexpected output
+ob_start();
+
+// Custom error handler to prevent HTML output
+function customErrorHandler($errno, $errstr, $errfile, $errline) {
+    // Log the error but don't output it
+    error_log("PHP Error [$errno]: $errstr in $errfile on line $errline");
+    return true; // Don't execute PHP's internal error handler
+}
+
+// Set custom error handler
+set_error_handler('customErrorHandler');
+
 require_once '../../config/database.php';
 require_once '../includes/Product.class.php';
 require_once '../includes/Manufacturer.class.php';
@@ -39,9 +55,27 @@ if ($edit_product_id) {
 
 // Handle AJAX requests for category search
 if (isset($_GET['action'])) {
+    // Ensure no output has been sent before this point
+    if (headers_sent($file, $line)) {
+        error_log("Headers already sent in $file:$line");
+        exit;
+    }
+    
+    // Set JSON content type
     header('Content-Type: application/json');
     
+    // Log the action being processed
+    error_log("Processing AJAX action: " . $_GET['action']);
+    
     switch ($_GET['action']) {
+        default:
+            // Check for any unexpected output
+            $unexpected_output = ob_get_contents();
+            if (!empty($unexpected_output)) {
+                error_log("Unexpected output before JSON response: " . $unexpected_output);
+                ob_clean();
+            }
+            break;
         case 'search_categories':
             $search_term = isset($_GET['q']) ? trim($_GET['q']) : '';
             $categories = $productObj->searchCategoriesForAutocomplete($search_term);
@@ -156,6 +190,18 @@ if (isset($_GET['action'])) {
             }
             exit;
             
+        case 'test_json':
+            // Simple test endpoint
+            // Clear any output buffer
+            ob_clean();
+            
+            echo json_encode([
+                'success' => true,
+                'message' => 'JSON test successful',
+                'timestamp' => date('Y-m-d H:i:s')
+            ]);
+            exit;
+            
         case 'reset_product_folder':
             // Reset the product folder for new product
             unset($_SESSION['current_product_folder']);
@@ -171,6 +217,14 @@ if (isset($_GET['action'])) {
             
             // Add debugging
             error_log("Product save request - Action: $action, Product ID: " . ($_POST['product_id'] ?? 'null'));
+            error_log("POST data: " . print_r($_POST, true));
+            
+            // Ensure we're still sending JSON
+            if (headers_sent($file, $line)) {
+                error_log("Headers already sent in save_product in $file:$line");
+                echo json_encode(['success' => false, 'message' => 'Server error: Headers already sent']);
+                exit;
+            }
             
             // Process sizes - decode JSON strings to arrays
             $sizes = [];
@@ -256,6 +310,13 @@ if (isset($_GET['action'])) {
             ];
             
             try {
+                // Check for any unexpected output before processing
+                $unexpected_output = ob_get_contents();
+                if (!empty($unexpected_output)) {
+                    error_log("Unexpected output in save_product: " . $unexpected_output);
+                    ob_clean();
+                }
+                
                 $product_id = $_POST['product_id'] ?? null;
                 
                 if ($product_id && !empty($product_id)) {
@@ -272,12 +333,14 @@ if (isset($_GET['action'])) {
                         error_log("Update result: " . ($result ? 'success' : 'failed'));
                         
                         if ($result) {
+                            ob_clean();
                             echo json_encode([
                                 'success' => true,
                                 'message' => 'Product updated successfully!',
                                 'product_id' => $product_id
                             ]);
                         } else {
+                            ob_clean();
                             echo json_encode([
                                 'success' => false,
                                 'message' => 'Failed to update product'
@@ -297,6 +360,7 @@ if (isset($_GET['action'])) {
                         // Save as draft
                         $product_id = $productObj->createProduct($manufacturer_id, $product_data);
                         error_log("New product created (draft) - ID: $product_id");
+                        ob_clean();
                         echo json_encode([
                             'success' => true,
                             'message' => 'Product saved as draft successfully!',
@@ -306,12 +370,14 @@ if (isset($_GET['action'])) {
                         // Publish product
                         $product_id = $productObj->createProduct($manufacturer_id, $product_data);
                         error_log("New product created (publish) - ID: $product_id");
+                        ob_clean();
                         echo json_encode([
                             'success' => true,
                             'message' => 'Product published successfully!',
                             'product_id' => $product_id
                         ]);
                     } else {
+                        ob_clean();
                         echo json_encode([
                             'success' => false,
                             'message' => 'Invalid action'
@@ -320,6 +386,18 @@ if (isset($_GET['action'])) {
                 }
             } catch (Exception $e) {
                 error_log("Product save error: " . $e->getMessage());
+                error_log("Product save error trace: " . $e->getTraceAsString());
+                
+                // Check for any output before sending JSON
+                $unexpected_output = ob_get_contents();
+                if (!empty($unexpected_output)) {
+                    error_log("Unexpected output in catch block: " . $unexpected_output);
+                    ob_clean();
+                }
+                
+                // Clear any remaining output buffer
+                ob_clean();
+                
                 echo json_encode([
                     'success' => false,
                     'message' => 'Error saving product: ' . $e->getMessage()
@@ -379,6 +457,9 @@ if (isset($_GET['action'])) {
             }
             exit;
     }
+    
+    // Clean up output buffer
+    ob_end_clean();
 }
 
 // Get common colors and sizes
@@ -566,6 +647,9 @@ include '../components/header.php';
 
         <!-- Form Actions -->
         <div class="form-actions">
+            <button type="button" class="btn btn-info" onclick="testJsonResponse()" style="margin-right: 10px;">
+                <i class="fas fa-bug"></i> Test JSON
+            </button>
             <?php if ($edit_product): ?>
             <button type="button" class="btn btn-primary" onclick="publishProduct()">
                 <i class="fas fa-save"></i> Update Product
@@ -590,7 +674,6 @@ include '../components/header.php';
 
 <!-- Add custom CSS and JS -->
 <link href="<?php echo MANUFACTURER_BASE_URL; ?>assets/css/add-product.css" rel="stylesheet">
-<script src="<?php echo MANUFACTURER_BASE_URL; ?>assets/js/add-product.js"></script>
 
 <script>
 // Initialize size selection and edit data

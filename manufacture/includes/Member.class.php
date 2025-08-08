@@ -59,39 +59,56 @@ class Member {
      * Add a new team member
      */
     public function addMember($data, $manufacturer_id) {
-        // Check if email already exists
-        if ($this->emailExists($data['email'], $manufacturer_id)) {
-            return ['success' => false, 'message' => 'Email already exists for this manufacturer'];
-        }
-        
-        $sql = "INSERT INTO team_members (
-                    manufacturer_id,
-                    first_name,
-                    last_name,
-                    email,
-                    password,
-                    role,
-                    is_active,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
-        
-        $hashed_password = password_hash($data['password'], PASSWORD_DEFAULT);
-        
-        $stmt = $this->pdo->prepare($sql);
-        $result = $stmt->execute([
-            $manufacturer_id,
-            $data['first_name'],
-            $data['last_name'],
-            $data['email'],
-            $hashed_password,
-            $data['role'],
-            $data['is_active'] ?? 1
-        ]);
-        
-        if ($result) {
-            return ['success' => true, 'message' => 'Team member added successfully'];
-        } else {
-            return ['success' => false, 'message' => 'Failed to add team member'];
+        try {
+            // First, check if manufacturer exists
+            if (!$this->manufacturerExists($manufacturer_id)) {
+                return ['success' => false, 'message' => 'Manufacturer not found'];
+            }
+            
+            // Check if email already exists
+            if ($this->emailExists($data['email'], $manufacturer_id)) {
+                return ['success' => false, 'message' => 'Email already exists for this manufacturer'];
+            }
+            
+            $sql = "INSERT INTO team_members (
+                        manufacturer_id,
+                        first_name,
+                        last_name,
+                        email,
+                        password,
+                        role,
+                        is_active,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+            
+            $hashed_password = password_hash($data['password'], PASSWORD_DEFAULT);
+            
+            $stmt = $this->pdo->prepare($sql);
+            $result = $stmt->execute([
+                $manufacturer_id,
+                $data['first_name'],
+                $data['last_name'],
+                $data['email'],
+                $hashed_password,
+                $data['role'],
+                $data['is_active'] ?? 1
+            ]);
+            
+            if ($result) {
+                return ['success' => true, 'message' => 'Team member added successfully'];
+            } else {
+                return ['success' => false, 'message' => 'Failed to add team member'];
+            }
+        } catch (PDOException $e) {
+            // Log the error for debugging
+            error_log("Team member insertion error: " . $e->getMessage());
+            
+            // Check for specific foreign key constraint errors
+            if (strpos($e->getMessage(), 'foreign key constraint fails') !== false) {
+                return ['success' => false, 'message' => 'Manufacturer not found or invalid'];
+            }
+            
+            return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
         }
     }
     
@@ -175,6 +192,17 @@ class Member {
         $sql = "SELECT COUNT(*) FROM team_members WHERE email = ? AND manufacturer_id = ? AND id != ?";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$email, $manufacturer_id, $member_id]);
+        
+        return $stmt->fetchColumn() > 0;
+    }
+    
+    /**
+     * Check if manufacturer exists
+     */
+    private function manufacturerExists($manufacturer_id) {
+        $sql = "SELECT COUNT(*) FROM manufacturers WHERE id = ?";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$manufacturer_id]);
         
         return $stmt->fetchColumn() > 0;
     }

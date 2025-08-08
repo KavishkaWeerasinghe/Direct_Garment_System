@@ -1,6 +1,20 @@
 // Product Add Page JavaScript
 // Global variables
-let uploadedFiles = new Set();
+if (typeof uploadedFiles === 'undefined') {
+    var uploadedFiles = new Set();
+}
+
+// Helper function to handle fetch responses with proper error handling
+function handleFetchResponse(response) {
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+        return response.json();
+    } else {
+        return response.text().then(text => {
+            throw new Error('Server returned HTML instead of JSON. Response: ' + text.substring(0, 200));
+        });
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     initializeProductForm();
@@ -8,14 +22,14 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeProductForm() {
-    // Only run on add-product page
-    if (!window.location.pathname.includes('add.php')) {
+    // Only run on product add page, not team member add page
+    if (!window.location.pathname.includes('products/add.php')) {
         return;
     }
     
     // Reset product folder for new product
     fetch('add.php?action=reset_product_folder')
-    .then(response => response.json())
+    .then(handleFetchResponse)
     .then(data => {
         //console.log('Product folder reset:', data.message);
     })
@@ -141,7 +155,7 @@ function uploadImages(formData) {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
+    .then(handleFetchResponse)
     .then(data => {
         //console.log('Upload response:', data);
         if (data.success) {
@@ -161,7 +175,7 @@ function uploadImages(formData) {
     })
     .catch(error => {
         console.error('Error:', error);
-        showNotification('Error uploading images', 'error');
+        showNotification('Error uploading images: ' + error.message, 'error');
     });
 }
 
@@ -211,7 +225,7 @@ function addImagePreview(image) {
 
 function testImageAccess(imagePath) {
     fetch(`add.php?action=test_image_access&path=${encodeURIComponent(imagePath)}`)
-    .then(response => response.json())
+    .then(handleFetchResponse)
     .then(data => {
         //console.log('Image access test:', data);
     })
@@ -257,7 +271,7 @@ function deleteImage(imageId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image_id: dbImageId })
         })
-        .then(response => response.json())
+        .then(handleFetchResponse)
         .then(data => {
             if (data.success) {
                 imageElement.remove();
@@ -268,7 +282,7 @@ function deleteImage(imageId) {
         })
         .catch(error => {
             console.error('Error:', error);
-            showNotification('Error deleting image', 'error');
+            showNotification('Error deleting image: ' + error.message, 'error');
         });
     } else {
         // New image - just remove from DOM
@@ -279,6 +293,11 @@ function deleteImage(imageId) {
 
 // Category Search
 function initializeCategorySearch() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        return;
+    }
+    
     const categorySearch = document.getElementById('categorySearch');
     const subcategorySearch = document.getElementById('subcategorySearch');
     let searchTimeout;
@@ -344,7 +363,7 @@ function initializeCategorySearch() {
 
 function searchCategories(query) {
     fetch(`add.php?action=search_categories&q=${encodeURIComponent(query)}`)
-    .then(response => response.json())
+    .then(handleFetchResponse)
     .then(data => {
         const resultsContainer = document.getElementById('categoryResults');
         resultsContainer.innerHTML = '';
@@ -382,7 +401,7 @@ function searchCategories(query) {
 
 function searchSubcategories(query, categoryId) {
     fetch(`add.php?action=search_subcategories&q=${encodeURIComponent(query)}&category_id=${categoryId}`)
-    .then(response => response.json())
+    .then(handleFetchResponse)
     .then(data => {
         const resultsContainer = document.getElementById('subcategoryResults');
         resultsContainer.innerHTML = '';
@@ -491,20 +510,29 @@ function removeSubcategory() {
 
 // Color Selection
 function initializeColorSelection() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        return;
+    }
+    
     const colorItems = document.querySelectorAll('.color-item:not(.add-color-item)');
 
     if (colorItems.length > 0) {
         colorItems.forEach(item => {
             item.addEventListener('click', function() {
                 const colorName = this.querySelector('.color-name')?.textContent;
-                const colorCode = this.querySelector('.color-preview')?.style.backgroundColor;
+                const colorPreview = this.querySelector('.color-preview');
+                const colorCode = colorPreview?.style.backgroundColor;
+                
+                // Convert RGB to hex if needed
+                const hexColor = convertToHex(colorCode);
                 
                 if (this.classList.contains('selected')) {
                     this.classList.remove('selected');
                     removeSelectedColor(colorName);
                 } else {
                     this.classList.add('selected');
-                    addSelectedColor(colorName, colorCode, false);
+                    addSelectedColor(colorName, hexColor, false);
                 }
             });
         });
@@ -580,11 +608,14 @@ function addCustomColor() {
         return;
     }
     
+    // Ensure colorCode is in hex format
+    const hexColor = convertToHex(colorCode);
+    
     // Add the custom color to the color selection
-    addCustomColorToSelection(colorName, colorCode);
+    addCustomColorToSelection(colorName, hexColor);
     
     // Add to selected colors
-    addSelectedColor(colorName, colorCode, true);
+    addSelectedColor(colorName, hexColor, true);
     
     // Close popup and show success message
     closeColorPopup();
@@ -595,11 +626,14 @@ function addCustomColorToSelection(colorName, colorCode) {
     const colorSelection = document.querySelector('.color-selection');
     const addColorItem = document.querySelector('.add-color-item');
     
+    // Ensure colorCode is in hex format
+    const hexColor = convertToHex(colorCode);
+    
     const newColorItem = document.createElement('div');
     newColorItem.className = 'color-item';
     newColorItem.dataset.colorName = colorName;
     newColorItem.innerHTML = `
-        <div class="color-preview" style="background-color: ${colorCode};"></div>
+        <div class="color-preview" style="background-color: ${hexColor};"></div>
         <div class="color-name">${colorName}</div>
     `;
     
@@ -610,7 +644,7 @@ function addCustomColorToSelection(colorName, colorCode) {
             removeSelectedColor(colorName);
         } else {
             this.classList.add('selected');
-            addSelectedColor(colorName, colorCode, true);
+            addSelectedColor(colorName, hexColor, true);
         }
     });
     
@@ -644,6 +678,11 @@ function removeSelectedColor(colorId) {
 
 // Tags Input
 function initializeTagsInput() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        return;
+    }
+    
     const tagsInput = document.getElementById('tagsInput');
 
     if (tagsInput) {
@@ -695,6 +734,12 @@ function removeTag(tagId) {
 
 // Form Actions
 function saveDraft() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        console.warn('saveDraft called on wrong page');
+        return;
+    }
+    
     const form = document.getElementById('productForm');
     const formData = new FormData(form);
     formData.append('action', 'save_draft');
@@ -715,7 +760,18 @@ function saveDraft() {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            return response.json();
+        } else {
+            // If not JSON, get the text and throw an error
+            return response.text().then(text => {
+                throw new Error('Server returned HTML instead of JSON. Response: ' + text.substring(0, 200));
+            });
+        }
+    })
     .then(data => {
         if (data.success) {
             showNotification('Product saved as draft successfully!', 'success');
@@ -728,11 +784,17 @@ function saveDraft() {
     })
     .catch(error => {
         console.error('Error:', error);
-        showNotification('Error saving draft', 'error');
+        showNotification('Error saving draft: ' + error.message, 'error');
     });
 }
 
 function publishProduct() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        console.warn('publishProduct called on wrong page');
+        return;
+    }
+    
     if (validateForm()) {
         const form = document.getElementById('productForm');
         const formData = new FormData(form);
@@ -754,7 +816,18 @@ function publishProduct() {
             method: 'POST',
             body: formData
         })
-        .then(response => response.json())
+        .then(response => {
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return response.json();
+            } else {
+                // If not JSON, get the text and throw an error
+                return response.text().then(text => {
+                    throw new Error('Server returned HTML instead of JSON. Response: ' + text.substring(0, 200));
+                });
+            }
+        })
         .then(data => {
             if (data.success) {
                 showNotification('Product published successfully!', 'success');
@@ -767,12 +840,18 @@ function publishProduct() {
         })
         .catch(error => {
             console.error('Error:', error);
-            showNotification('Error publishing product', 'error');
+            showNotification('Error publishing product: ' + error.message, 'error');
         });
     }
 }
 
 function validateForm() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        console.warn('validateForm called on wrong page');
+        return false;
+    }
+    
     let isValid = true;
     const errors = [];
 
@@ -834,4 +913,48 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 5000);
+}
+
+// Convert RGB/RGBA color to hex
+function convertToHex(color) {
+    if (!color) return '#000000';
+    
+    // If it's already a hex color, return it
+    if (color.startsWith('#')) {
+        return color;
+    }
+    
+    // If it's RGB or RGBA, convert to hex
+    if (color.startsWith('rgb')) {
+        const rgb = color.match(/\d+/g);
+        if (rgb && rgb.length >= 3) {
+            const r = parseInt(rgb[0]);
+            const g = parseInt(rgb[1]);
+            const b = parseInt(rgb[2]);
+            return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+    }
+    
+    // Default fallback
+    return '#000000';
+}
+
+// Test function to check JSON response
+function testJsonResponse() {
+    // Only run on product add page
+    if (!window.location.pathname.includes('products/add.php')) {
+        console.warn('testJsonResponse called on wrong page');
+        return;
+    }
+    
+    fetch('add.php?action=test_json')
+    .then(handleFetchResponse)
+    .then(data => {
+        console.log('JSON test successful:', data);
+        showNotification('JSON test successful: ' + data.message, 'success');
+    })
+    .catch(error => {
+        console.error('JSON test failed:', error);
+        showNotification('JSON test failed: ' + error.message, 'error');
+    });
 } 

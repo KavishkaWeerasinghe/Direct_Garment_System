@@ -142,8 +142,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Add loading states to buttons
-    document.querySelectorAll('button[type="submit"]').forEach(button => {
+    // Add loading states to buttons (only for profile forms)
+    document.querySelectorAll('form.profile-form button[type="submit"], form.settings-form button[type="submit"]').forEach(button => {
         button.addEventListener('click', function() {
             if (this.form && this.form.checkValidity()) {
                 this.disabled = true;

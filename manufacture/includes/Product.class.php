@@ -110,13 +110,48 @@ class Product {
         $stmt = $this->pdo->prepare($sql);
         
         foreach ($colors as $color) {
+            // Ensure color_code is not too long and is in proper format
+            $colorCode = $this->validateAndFixColorCode($color['code']);
+            
             $stmt->execute([
                 'product_id' => $product_id,
                 'color_name' => $color['name'],
-                'color_code' => $color['code'],
-                'is_custom' => $color['is_custom'] ? 1 : 0
+                'color_code' => $colorCode,
+                'is_custom' => isset($color['is_custom']) && $color['is_custom'] ? 1 : 0
             ]);
         }
+    }
+    
+    // Validate and fix color code
+    private function validateAndFixColorCode($colorCode) {
+        // If it's already a valid hex color, return it (truncated if needed)
+        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $colorCode)) {
+            return substr($colorCode, 0, 7); // Ensure it fits in VARCHAR(7)
+        }
+        
+        // If it's RGB format, convert to hex
+        if (preg_match('/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/', $colorCode, $matches)) {
+            $r = intval($matches[1]);
+            $g = intval($matches[2]);
+            $b = intval($matches[3]);
+            return sprintf("#%02x%02x%02x", $r, $g, $b);
+        }
+        
+        // If it's RGBA format, convert to hex (ignore alpha)
+        if (preg_match('/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)$/', $colorCode, $matches)) {
+            $r = intval($matches[1]);
+            $g = intval($matches[2]);
+            $b = intval($matches[3]);
+            return sprintf("#%02x%02x%02x", $r, $g, $b);
+        }
+        
+        // If it's a hex color but longer than 7 chars, truncate it
+        if (preg_match('/^#[0-9A-Fa-f]+$/', $colorCode)) {
+            return substr($colorCode, 0, 7);
+        }
+        
+        // Default fallback
+        return '#000000';
     }
     
     // Get product by ID
