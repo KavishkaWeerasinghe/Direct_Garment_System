@@ -1,13 +1,13 @@
 <?php
-require_once __DIR__ . '/includes/db_connection.php';
+require_once __DIR__ . '/config/database.php';
 
 // Check if user is logged in
-if (!isset($_COOKIE['user_id'])) {
+if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit;
 }
 
-$user_id = $_COOKIE['user_id'];
+$user_id = $_SESSION['user_id'];
 $success_message = '';
 $error_message = '';
 
@@ -22,41 +22,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($new_password !== $confirm_password) {
         $error_message = 'New passwords do not match';
     } else {
-        // Verify current password
-        $stmt = $conn->prepare("SELECT password FROM users WHERE id = ?");
-        if ($stmt === false) {
-            $error_message = "Error preparing statement: " . $conn->error;
-        } else {
-            $stmt->bind_param("i", $user_id);
-            if (!$stmt->execute()) {
-                $error_message = "Error executing statement: " . $stmt->error;
-            } else {
-                $result = $stmt->get_result();
-                $user = $result->fetch_assoc();
-                
-                if (password_verify($current_password, $user['password'])) {
-                    // Hash new password
-                    $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+        try {
+            // Verify current password
+            $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
+            $stmt->execute([$user_id]);
+            $user = $stmt->fetch();
                     
-                    // Update password
-                    $update_stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
-                    if ($update_stmt === false) {
-                        $error_message = "Error preparing update statement: " . $conn->error;
-                    } else {
-                        $update_stmt->bind_param("si", $hashed_password, $user_id);
-                        
-                        if ($update_stmt->execute()) {
-                            $success_message = 'Password changed successfully';
-                        } else {
-                            $error_message = 'Failed to change password: ' . $update_stmt->error;
-                        }
-                        $update_stmt->close();
-                    }
-                } else {
-                    $error_message = 'Current password is incorrect';
-                }
+            if ($user && password_verify($current_password, $user['password'])) {
+                // Hash new password
+                $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+                
+                // Update password
+                $update_stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
+                $update_stmt->execute([$hashed_password, $user_id]);
+                
+                $success_message = 'Password changed successfully';
+            } else {
+                $error_message = 'Current password is incorrect';
             }
-            $stmt->close();
+        } catch (Exception $e) {
+            $error_message = 'An error occurred: ' . $e->getMessage();
         }
     }
 }

@@ -1,5 +1,11 @@
 <?php
-require_once __DIR__ . '/includes/db_connection.php';
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/auth/user_auth.php';
+
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Function to log errors
 function logError($message) {
@@ -12,64 +18,43 @@ function logError($message) {
 }
 
 // Check if user is logged in
-if (!isset($_COOKIE['user_id'])) {
+if (!isLoggedIn()) {
     header('Location: login.php');
     exit;
 }
 
-$user_id = $_COOKIE['user_id'];
+$user_id = $_SESSION['user_id'];
 $success_message = '';
 $error_message = '';
 
 // Handle profile deletion
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_profile'])) {
-    // Start transaction
-    $conn->begin_transaction();
-    
     try {
+        // Start transaction
+        $pdo->beginTransaction();
+        
         // Delete user's cart items
-        $delete_cart = $conn->prepare("DELETE FROM cart WHERE user_id = ?");
-        if ($delete_cart === false) {
-            throw new Exception("Failed to prepare cart deletion statement: " . $conn->error);
-        }
-        $delete_cart->bind_param("i", $user_id);
-        if (!$delete_cart->execute()) {
-            throw new Exception("Failed to delete cart items: " . $delete_cart->error);
-        }
+        $delete_cart = $pdo->prepare("DELETE FROM cart WHERE user_id = ?");
+        $delete_cart->execute([$user_id]);
         
         // Delete user's profile photo if exists
-        $stmt = $conn->prepare("SELECT profile_photo FROM users WHERE id = ?");
-        if ($stmt === false) {
-            throw new Exception("Failed to prepare profile photo selection statement: " . $conn->error);
-        }
-        $stmt->bind_param("i", $user_id);
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to get profile photo: " . $stmt->error);
-        }
-        $result = $stmt->get_result();
-        $user = $result->fetch_assoc();
+        $stmt = $pdo->prepare("SELECT profile_photo FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user_data = $stmt->fetch();
         
-        if ($user && $user['profile_photo'] && file_exists($user['profile_photo'])) {
-            unlink($user['profile_photo']);
+        if ($user_data && $user_data['profile_photo'] && file_exists($user_data['profile_photo'])) {
+            unlink($user_data['profile_photo']);
         }
         
         // Delete user account
-        $delete_user = $conn->prepare("DELETE FROM users WHERE id = ?");
-        if ($delete_user === false) {
-            throw new Exception("Failed to prepare user deletion statement: " . $conn->error);
-        }
-        $delete_user->bind_param("i", $user_id);
-        if (!$delete_user->execute()) {
-            throw new Exception("Failed to delete user account: " . $delete_user->error);
-        }
+        $delete_user = $pdo->prepare("DELETE FROM users WHERE id = ?");
+        $delete_user->execute([$user_id]);
         
         // Commit transaction
-        $conn->commit();
+        $pdo->commit();
         
-        // Clear all cookies
-        setcookie('user_id', '', time() - 3600, '/');
-        setcookie('user_name', '', time() - 3600, '/');
-        setcookie('profile_photo', '', time() - 3600, '/');
+        // Clear session and cookies
+        logoutUser();
         
         // Redirect to home page
         header('Location: index.php');
@@ -77,38 +62,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_profile'])) {
         
     } catch (Exception $e) {
         // Rollback transaction on error
-        $conn->rollback();
+        $pdo->rollback();
         $error_message = "Error deleting profile: " . $e->getMessage();
         logError("Profile deletion error: " . $e->getMessage());
     }
 }
 
 // Get user data
-$stmt = $conn->prepare("SELECT name, email, phone_number, address, profile_photo FROM users WHERE id = ?");
-if ($stmt === false) {
-    $error = $conn->error;
-    logError("Failed to prepare user data statement: " . $error);
-    die("Error preparing statement: " . $error);
-}
-
-if (!$stmt->bind_param("i", $user_id)) {
-    $error = $stmt->error;
-    logError("Failed to bind user ID parameter: " . $error);
-    die("Error binding parameter: " . $error);
-}
-
-if (!$stmt->execute()) {
-    $error = $stmt->error;
-    logError("Failed to execute user data query: " . $error);
-    die("Error executing statement: " . $error);
-}
-
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
-
-if (!$user) {
-    logError("User not found with ID: " . $user_id);
-    die("User not found");
+try {
+    $stmt = $pdo->prepare("SELECT name, email, phone_number, address, profile_photo FROM users WHERE id = ?");
+    $stmt->execute([$user_id]);
+    $user = $stmt->fetch();
+    
+    if (!$user) {
+        logError("User not found with ID: " . $user_id);
+        die("User not found");
+    }
+} catch (PDOException $e) {
+    logError("Failed to get user data: " . $e->getMessage());
+    die("Error getting user data: " . $e->getMessage());
 }
 
 // Handle profile update
@@ -144,38 +116,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['delete_profile'])) {
     }
     
     // Update user data
-    $update_stmt = $conn->prepare("UPDATE users SET name = ?, email = ?, phone_number = ?, address = ?, profile_photo = ? WHERE id = ?");
-    if ($update_stmt === false) {
-        $error = $conn->error;
-        logError("Failed to prepare update statement: " . $error);
-        $error_message = "Error preparing update statement: " . $error;
-    } else {
-        if (!$update_stmt->bind_param("sssssi", $name, $email, $phone_number, $address, $profile_photo, $user_id)) {
-            $error = $update_stmt->error;
-            logError("Failed to bind update parameters: " . $error);
-            $error_message = "Error binding update parameters: " . $error;
-        } else {
-            if (!$update_stmt->execute()) {
-                $error = $update_stmt->error;
-                logError("Failed to execute update: " . $error);
-                $error_message = "Failed to update profile: " . $error;
-            } else {
-                // Update cookies
-                setcookie('user_name', $name, time() + (86400 * 30), "/");
-                setcookie('profile_photo', $profile_photo, time() + (86400 * 30), "/");
-                
-                $success_message = 'Profile updated successfully';
-                // Refresh user data
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $user = $result->fetch_assoc();
-            }
-        }
-        $update_stmt->close();
+    try {
+        $update_stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, phone_number = ?, address = ?, profile_photo = ? WHERE id = ?");
+        $update_stmt->execute([$name, $email, $phone_number, $address, $profile_photo, $user_id]);
+        
+        // Update session variables
+        $_SESSION['user_name'] = $name;
+        
+        $success_message = 'Profile updated successfully';
+        
+        // Refresh user data
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch();
+        
+    } catch (PDOException $e) {
+        logError("Failed to update profile: " . $e->getMessage());
+        $error_message = "Failed to update profile: " . $e->getMessage();
     }
 }
-
-$stmt->close();
 ?>
 
 <?php include 'components/header.php'; ?>
@@ -301,4 +259,6 @@ function previewImage(input) {
 }
 </script>
 
-<?php include 'components/footer.php'; ?> 
+<?php include 'components/footer.php'; ?>
+</body>
+</html> 

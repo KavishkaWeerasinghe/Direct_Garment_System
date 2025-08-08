@@ -1,105 +1,84 @@
 <?php
-require_once __DIR__ . '/includes/db_connection.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/user_auth.php';
+
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Check if user is logged in
-if (!isset($_COOKIE['user_id'])) {
+if (!isLoggedIn()) {
     header('Location: login.php');
     exit;
 }
 
-$user_id = $_COOKIE['user_id'];
+$user_id = $_SESSION['user_id'];
 $success_message = '';
 $error_message = '';
 
 // Handle profile deletion
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_profile'])) {
-    // Verify user exists first
-    $check_user = $conn->prepare("SELECT id, profile_photo FROM users WHERE id = ?");
-    $check_user->bind_param("i", $user_id);
-    $check_user->execute();
-    $user_result = $check_user->get_result();
-    
-    if ($user_result->num_rows === 0) {
-        $error_message = "User not found";
-    } else {
-        // Start transaction
-        $conn->begin_transaction();
+    try {
+        // Verify user exists first
+        $check_user = $pdo->prepare("SELECT id, profile_photo FROM users WHERE id = ?");
+        $check_user->execute([$user_id]);
         
-        try {
-            $user_data = $user_result->fetch_assoc();
+        if ($check_user->rowCount() === 0) {
+            $error_message = "User not found";
+        } else {
+            $user_data = $check_user->fetch();
+            
+            // Start transaction
+            $pdo->beginTransaction();
             
             // Delete user's cart items
-            $delete_cart = $conn->prepare("DELETE FROM cart WHERE user_id = ?");
-            $delete_cart->bind_param("i", $user_id);
-            if (!$delete_cart->execute()) {
-                throw new Exception("Failed to delete cart items: " . $delete_cart->error);
-            }
+            $delete_cart = $pdo->prepare("DELETE FROM cart WHERE user_id = ?");
+            $delete_cart->execute([$user_id]);
             
             // Delete user's orders
-            $delete_orders = $conn->prepare("DELETE FROM orders WHERE user_id = ?");
-            $delete_orders->bind_param("i", $user_id);
-            if (!$delete_orders->execute()) {
-                throw new Exception("Failed to delete orders: " . $delete_orders->error);
-            }
+            $delete_orders = $pdo->prepare("DELETE FROM orders WHERE user_id = ?");
+            $delete_orders->execute([$user_id]);
             
             // Delete user's profile photo if exists
             if (!empty($user_data['profile_photo']) && file_exists($user_data['profile_photo'])) {
-                if (!unlink($user_data['profile_photo'])) {
-                    throw new Exception("Failed to delete profile photo");
-                }
+                unlink($user_data['profile_photo']);
             }
             
             // Delete user account
-            $delete_user = $conn->prepare("DELETE FROM users WHERE id = ?");
-            $delete_user->bind_param("i", $user_id);
-            if (!$delete_user->execute()) {
-                throw new Exception("Failed to delete user: " . $delete_user->error);
-            }
+            $delete_user = $pdo->prepare("DELETE FROM users WHERE id = ?");
+            $delete_user->execute([$user_id]);
             
-            // Commit transaction if all operations succeeded
-            $conn->commit();
+            // Commit transaction
+            $pdo->commit();
             
-            // Clear all cookies
-            $cookie_params = session_get_cookie_params();
-            setcookie('user_id', '', time() - 3600, '/');
-            setcookie('user_name', '', time() - 3600, '/');
-            setcookie('profile_photo', '', time() - 3600, '/');
-            setcookie('user_role', '', time() - 3600, '/');
-            
-            // Clear session if exists
-            if (session_status() === PHP_SESSION_ACTIVE) {
-                session_unset();
-                session_destroy();
-            }
+            // Use the centralized logout function
+            logoutUser();
             
             // Redirect to home page
             header('Location: index.php');
             exit;
-            
-        } catch (Exception $e) {
-            // Rollback transaction on error
-            $conn->rollback();
-            $error_message = "Error deleting profile: " . $e->getMessage();
         }
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        if ($pdo->inTransaction()) {
+            $pdo->rollback();
+        }
+        $error_message = "Error deleting profile: " . $e->getMessage();
     }
 }
 
 // Get user data
-$stmt = $conn->prepare("SELECT name, email, phone_number, address, profile_photo FROM users WHERE id = ?");
-if ($stmt === false) {
-    die("Error preparing statement: " . $conn->error);
-}
-
-$stmt->bind_param("i", $user_id);
-if (!$stmt->execute()) {
-    die("Error executing statement: " . $stmt->error);
-}
-
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
-
-if (!$user) {
-    die("User not found");
+try {
+    $stmt = $pdo->prepare("SELECT name, email, phone_number, address, profile_photo FROM users WHERE id = ?");
+    $stmt->execute([$user_id]);
+    $user = $stmt->fetch();
+    
+    if (!$user) {
+        die("User not found");
+    }
+} catch (PDOException $e) {
+    die("Error getting user data: " . $e->getMessage());
 }
 
 // Handle profile update
@@ -144,31 +123,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['delete_profile'])) {
     
     // Update user data
     if (empty($error_message)) {
-        $update_stmt = $conn->prepare("UPDATE users SET name = ?, email = ?, phone_number = ?, address = ?, profile_photo = ? WHERE id = ?");
-        if ($update_stmt === false) {
-            $error_message = "Error preparing update statement: " . $conn->error;
-        } else {
-            $update_stmt->bind_param("sssssi", $name, $email, $phone_number, $address, $profile_photo, $user_id);
+        try {
+            $update_stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, phone_number = ?, address = ?, profile_photo = ? WHERE id = ?");
+            $update_stmt->execute([$name, $email, $phone_number, $address, $profile_photo, $user_id]);
             
-            if ($update_stmt->execute()) {
-                // Update cookies
-                setcookie('user_name', $name, time() + (86400 * 30), "/");
-                setcookie('profile_photo', $profile_photo, time() + (86400 * 30), "/");
-                
-                $success_message = 'Profile updated successfully';
-                // Refresh user data
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $user = $result->fetch_assoc();
-            } else {
-                $error_message = 'Failed to update profile: ' . $update_stmt->error;
-            }
-            $update_stmt->close();
+            // Update session variables
+            $_SESSION['user_name'] = $name;
+            
+            $success_message = 'Profile updated successfully';
+            
+            // Refresh user data
+            $stmt->execute([$user_id]);
+            $user = $stmt->fetch();
+            
+        } catch (PDOException $e) {
+            $error_message = 'Failed to update profile: ' . $e->getMessage();
         }
     }
 }
-
-$stmt->close();
 ?>
 
 <?php include 'components/header.php'; ?>

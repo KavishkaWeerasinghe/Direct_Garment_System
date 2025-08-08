@@ -1,5 +1,6 @@
 <?php
 require_once 'includes/product_operations.php';
+require_once 'includes/Product.class.php';
 
 // Get filter parameters
 $category = $_GET['category'] ?? null;
@@ -7,10 +8,15 @@ $minPrice = isset($_GET['min_price']) ? floatval($_GET['min_price']) : null;
 $maxPrice = isset($_GET['max_price']) ? floatval($_GET['max_price']) : null;
 $sort = $_GET['sort'] ?? 'featured';
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$color = $_GET['color'] ?? null;
 
 // Get products and categories
-$productsResult = getProducts($category, $minPrice, $maxPrice, $sort, $page);
+$productsResult = getProducts($category, $minPrice, $maxPrice, $sort, $page, 12, $color);
 $categoriesResult = getCategories();
+
+// Get available colors using Product class
+$productObj = new Product($pdo);
+$availableColors = $productObj->getAvailableColors();
 
 // Handle errors
 if (!$productsResult['success']) {
@@ -98,6 +104,29 @@ include 'components/header.php';
         /* Existing thumb styles */
     }
 
+    /* Color circle styles */
+    .color-circle {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: inline-block;
+        border: 2px solid #e5e7eb;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    
+    .color-circle:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    
+    .color-circle.active {
+        border-color: #2563eb;
+        border-width: 3px;
+        transform: scale(1.1);
+    }
+
     /* Custom Pagination Styles */
     .pagination .page-item .page-link {
         border-radius: 8px !important; /* Rounded corners */
@@ -174,12 +203,22 @@ include 'components/header.php';
                 <div class="card-body">
                     <h6 class="fw-bold mb-3">Colors</h6>
                     <div class="d-flex flex-wrap gap-2">
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: red;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: blue;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: green;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: yellow;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: purple;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: black;"></span>
+                        <?php if (!empty($availableColors)): ?>
+                            <?php foreach ($availableColors as $colorOption): ?>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['color' => $colorOption['name'], 'page' => 1])); ?>" 
+                                   class="text-decoration-none" 
+                                   title="<?php echo htmlspecialchars($colorOption['name']); ?>">
+                                    <span class="color-circle <?php echo $color === $colorOption['name'] ? 'active' : ''; ?>" 
+                                          style="background-color: <?php echo htmlspecialchars($colorOption['code']); ?>;"></span>
+                                </a>
+                            <?php endforeach; ?>
+                            <?php if ($color): ?>
+                                <a href="?<?php echo http_build_query(array_diff_key($_GET, ['color' => ''])); ?>" 
+                                   class="btn btn-sm btn-outline-secondary ms-2">Clear</a>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="text-muted">No colors available</span>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

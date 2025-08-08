@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/db_connection.php';
+require_once __DIR__ . '/../config/database.php';
 
 // Function to log errors
 function logError($message) {
@@ -12,21 +12,40 @@ function logError($message) {
 }
 
 // Verify database connection
-if (!isset($conn) || $conn === false) {
-    logError("Database connection failed: " . ($conn ? $conn->error : "Connection not established"));
+if (!isset($pdo) || $pdo === false) {
+    logError("Database connection failed: PDO not available");
     die(json_encode([
         'success' => false,
         'message' => 'Database connection failed'
     ]));
 }
 
-// Get user ID from cookie
-$user_id = isset($_COOKIE['user_id']) ? $_COOKIE['user_id'] : null;
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Get user ID from session
+$user_id = $_SESSION['user_id'] ?? null;
 
 // Handle different cart operations
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 switch ($action) {
+    case 'check_auth':
+        if (!$user_id) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'User not logged in'
+            ]);
+        } else {
+            echo json_encode([
+                'success' => true,
+                'message' => 'User is logged in'
+            ]);
+        }
+        break;
+
     case 'add':
         if (!$user_id) {
             die(json_encode([
@@ -47,49 +66,28 @@ switch ($action) {
 
         try {
             // Check if product exists
-            $stmt = $conn->prepare("SELECT id FROM product WHERE id = ?");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare product check statement: " . $conn->error);
-            }
-            $stmt->bind_param("i", $product_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
+            $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ? AND is_active = 1");
+            $stmt->execute([$product_id]);
             
-            if ($result->num_rows === 0) {
+            if ($stmt->rowCount() === 0) {
                 throw new Exception("Product not found");
             }
-            $stmt->close();
 
             // Check if item already exists in cart
-            $stmt = $conn->prepare("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare cart check statement: " . $conn->error);
-            }
-            $stmt->bind_param("ii", $user_id, $product_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
+            $stmt = $pdo->prepare("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?");
+            $stmt->execute([$user_id, $product_id]);
             
-            if ($result->num_rows > 0) {
+            if ($stmt->rowCount() > 0) {
                 // Update quantity
-                $cart_item = $result->fetch_assoc();
+                $cart_item = $stmt->fetch();
                 $new_quantity = $cart_item['quantity'] + $quantity;
                 
-                $update_stmt = $conn->prepare("UPDATE cart SET quantity = ? WHERE id = ?");
-                if ($update_stmt === false) {
-                    throw new Exception("Failed to prepare update statement: " . $conn->error);
-                }
-                $update_stmt->bind_param("ii", $new_quantity, $cart_item['id']);
-                $update_stmt->execute();
-                $update_stmt->close();
+                $update_stmt = $pdo->prepare("UPDATE cart SET quantity = ? WHERE id = ?");
+                $update_stmt->execute([$new_quantity, $cart_item['id']]);
             } else {
                 // Add new item
-                $insert_stmt = $conn->prepare("INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, ?)");
-                if ($insert_stmt === false) {
-                    throw new Exception("Failed to prepare insert statement: " . $conn->error);
-                }
-                $insert_stmt->bind_param("iii", $user_id, $product_id, $quantity);
-                $insert_stmt->execute();
-                $insert_stmt->close();
+                $insert_stmt = $pdo->prepare("INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, ?)");
+                $insert_stmt->execute([$user_id, $product_id, $quantity]);
             }
 
             echo json_encode([
@@ -115,23 +113,22 @@ switch ($action) {
         }
 
         try {
-            $stmt = $conn->prepare("
-                SELECT c.id, c.quantity, p.product_name, p.price, p.main_image as image_url 
+            $stmt = $pdo->prepare("
+                SELECT c.id, c.quantity, p.name as product_name, 
+                       COALESCE(ps_min.selling_price, 0) as price,
+                       COALESCE(pi.image_path, 'src/images/default-product.jpg') as image_url 
                 FROM cart c 
-                JOIN product p ON c.product_id = p.id 
-                WHERE c.user_id = ?
+                JOIN products p ON c.product_id = p.id 
+                LEFT JOIN (SELECT product_id, MIN(selling_price) as selling_price 
+                          FROM product_sizes WHERE is_active = 1 GROUP BY product_id) ps_min 
+                          ON p.id = ps_min.product_id
+                LEFT JOIN (SELECT product_id, image_path FROM product_images WHERE is_main = 1) pi 
+                          ON p.id = pi.product_id
+                WHERE c.user_id = ? AND p.is_active = 1
             ");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare get items statement: " . $conn->error);
-            }
-            $stmt->bind_param("i", $user_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
+            $stmt->execute([$user_id]);
             
-            $items = [];
-            while ($row = $result->fetch_assoc()) {
-                $items[] = $row;
-            }
+            $items = $stmt->fetchAll();
             
             echo json_encode([
                 'success' => true,
@@ -156,14 +153,9 @@ switch ($action) {
         }
 
         try {
-            $stmt = $conn->prepare("SELECT COUNT(DISTINCT product_id) as count FROM cart WHERE user_id = ?");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare count statement: " . $conn->error);
-            }
-            $stmt->bind_param("i", $user_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $row = $result->fetch_assoc();
+            $stmt = $pdo->prepare("SELECT COUNT(DISTINCT product_id) as count FROM cart WHERE user_id = ?");
+            $stmt->execute([$user_id]);
+            $row = $stmt->fetch();
             
             echo json_encode([
                 'success' => true,
@@ -198,14 +190,10 @@ switch ($action) {
         }
 
         try {
-            $stmt = $conn->prepare("UPDATE cart SET quantity = ? WHERE id = ? AND user_id = ?");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare update quantity statement: " . $conn->error);
-            }
-            $stmt->bind_param("iii", $quantity, $cart_id, $user_id);
-            $stmt->execute();
+            $stmt = $pdo->prepare("UPDATE cart SET quantity = ? WHERE id = ? AND user_id = ?");
+            $stmt->execute([$quantity, $cart_id, $user_id]);
             
-            if ($stmt->affected_rows === 0) {
+            if ($stmt->rowCount() === 0) {
                 throw new Exception("Failed to update quantity");
             }
 
@@ -241,14 +229,10 @@ switch ($action) {
         }
 
         try {
-            $stmt = $conn->prepare("DELETE FROM cart WHERE id = ? AND user_id = ?");
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare remove statement: " . $conn->error);
-            }
-            $stmt->bind_param("ii", $cart_id, $user_id);
-            $stmt->execute();
+            $stmt = $pdo->prepare("DELETE FROM cart WHERE id = ? AND user_id = ?");
+            $stmt->execute([$cart_id, $user_id]);
             
-            if ($stmt->affected_rows === 0) {
+            if ($stmt->rowCount() === 0) {
                 throw new Exception("Failed to remove item");
             }
 

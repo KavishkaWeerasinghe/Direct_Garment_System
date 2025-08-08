@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/db_connection.php';
+require_once __DIR__ . '/../config/database.php';
 
 // Function to log errors
 function logError($message) {
@@ -12,8 +12,8 @@ function logError($message) {
 }
 
 // Verify database connection
-if (!isset($conn) || $conn === false) {
-    logError("Database connection failed: " . ($conn ? $conn->error : "Connection not established"));
+if (!isset($pdo) || $pdo === false) {
+    logError("Database connection failed: PDO not available");
     die(json_encode([
         'success' => false,
         'message' => 'Database connection failed'
@@ -21,160 +21,166 @@ if (!isset($conn) || $conn === false) {
 }
 
 // Get all products with optional filters
-function getProducts($category = null, $minPrice = null, $maxPrice = null, $sort = 'featured', $page = 1, $perPage = 12) {
-    global $conn;
-    $stmt = null;
-    $countStmt = null;
+function getProducts($category = null, $minPrice = null, $maxPrice = null, $sort = 'featured', $page = 1, $perPage = 12, $color = null) {
+    global $pdo;
     
     try {
-        // Build the base query
-        $query = "SELECT p.*, c.name as category_name 
-                 FROM product p 
-                 LEFT JOIN category c ON p.category_id = c.category_id 
-                 WHERE 1=1";
-        $countQuery = "SELECT COUNT(*) as total FROM product p WHERE 1=1";
+        // Use the product_details_view for efficient querying
+        $query = "SELECT DISTINCT pdv.*, 
+                         COALESCE(pdv.main_image, 'src/images/default-product.jpg') as image_url,
+                         COALESCE(ps_min.selling_price, 0) as min_price,
+                         COALESCE(ps_max.selling_price, 0) as max_price,
+                         COALESCE(ps_avg.avg_price, 0) as price
+                 FROM product_details_view pdv
+                 LEFT JOIN (SELECT product_id, MIN(selling_price) as selling_price 
+                           FROM product_sizes WHERE is_active = 1 GROUP BY product_id) ps_min 
+                           ON pdv.id = ps_min.product_id
+                 LEFT JOIN (SELECT product_id, MAX(selling_price) as selling_price 
+                           FROM product_sizes WHERE is_active = 1 GROUP BY product_id) ps_max 
+                           ON pdv.id = ps_max.product_id
+                 LEFT JOIN (SELECT product_id, AVG(selling_price) as avg_price 
+                           FROM product_sizes WHERE is_active = 1 GROUP BY product_id) ps_avg 
+                           ON pdv.id = ps_avg.product_id";
+        
+        // Add color join if color filter is specified
+        if ($color) {
+            $query .= " LEFT JOIN product_colors pc ON pdv.id = pc.product_id";
+        }
+        
+        $query .= " WHERE pdv.is_active = 1";
+        
+        $countQuery = "SELECT COUNT(DISTINCT pdv.id) as total 
+                      FROM product_details_view pdv 
+                      LEFT JOIN product_sizes ps ON pdv.id = ps.product_id AND ps.is_active = 1";
+        
+        // Add color join to count query if needed
+        if ($color) {
+            $countQuery .= " LEFT JOIN product_colors pc ON pdv.id = pc.product_id";
+        }
+        
+        $countQuery .= " WHERE pdv.is_active = 1";
         $params = [];
-        $types = "";
         
         // Add category filter
         if ($category) {
-            $query .= " AND p.category_id = ?";
-            $countQuery .= " AND p.category_id = ?";
+            $query .= " AND pdv.category_id = ?";
+            $countQuery .= " AND pdv.category_id = ?";
             $params[] = $category;
-            $types .= "i";
         }
         
-        // Add price filters
-        if ($minPrice !== null) {
-            $query .= " AND p.price >= ?";
-            $countQuery .= " AND p.price >= ?";
+        // Add color filter
+        if ($color) {
+            $query .= " AND pc.color_name = ?";
+            $countQuery .= " AND pc.color_name = ?";
+            $params[] = $color;
+        }
+        
+        // Add price filters using product_sizes table
+        if ($minPrice !== null && $minPrice > 0) {
+            $query .= " AND ps_avg.avg_price >= ?";
+            $countQuery .= " AND EXISTS (SELECT 1 FROM product_sizes ps2 WHERE ps2.product_id = pdv.id AND ps2.selling_price >= ? AND ps2.is_active = 1)";
             $params[] = $minPrice;
-            $types .= "d";
         }
-        if ($maxPrice !== null) {
-            $query .= " AND p.price <= ?";
-            $countQuery .= " AND p.price <= ?";
+        if ($maxPrice !== null && $maxPrice > 0) {
+            $query .= " AND ps_avg.avg_price <= ?";
+            $countQuery .= " AND EXISTS (SELECT 1 FROM product_sizes ps3 WHERE ps3.product_id = pdv.id AND ps3.selling_price <= ? AND ps3.is_active = 1)";
             $params[] = $maxPrice;
-            $types .= "d";
         }
+        
+        // Group by product for the main query
+        $query .= " GROUP BY pdv.id";
         
         // Add sorting
         switch ($sort) {
             case 'price_low':
-                $query .= " ORDER BY p.price ASC";
+                $query .= " ORDER BY price ASC";
                 break;
             case 'price_high':
-                $query .= " ORDER BY p.price DESC";
+                $query .= " ORDER BY price DESC";
+                break;
+            case 'name_asc':
+                $query .= " ORDER BY pdv.name ASC";
+                break;
+            case 'name_desc':
+                $query .= " ORDER BY pdv.name DESC";
+                break;
+            case 'newest':
+                $query .= " ORDER BY pdv.created_at DESC";
+                break;
+            case 'oldest':
+                $query .= " ORDER BY pdv.created_at ASC";
                 break;
             default: // featured
-                $query .= " ORDER BY p.id DESC";
+                $query .= " ORDER BY pdv.created_at DESC";
         }
         
-        // Add pagination
+        // Get total count first
+        $countStmt = $pdo->prepare($countQuery);
+        $countStmt->execute($params);
+        $total = $countStmt->fetchColumn();
+        
+        // Add pagination to main query
         $offset = ($page - 1) * $perPage;
         $query .= " LIMIT ? OFFSET ?";
-        $params[] = $perPage;
-        $params[] = $offset;
-        $types .= "ii";
-        
-        // Get total count
-        $countStmt = $conn->prepare($countQuery);
-        if ($countStmt === false) {
-            throw new Exception("Failed to prepare count statement: " . $conn->error);
-        }
-        
-        if (!empty($params)) {
-            // Remove pagination parameters for count query
-            $countParams = array_slice($params, 0, -2);
-            $countTypes = substr($types, 0, -2);
-            if (!empty($countParams)) {
-                $countStmt->bind_param($countTypes, ...$countParams);
-            }
-        }
-        
-        if (!$countStmt->execute()) {
-            throw new Exception("Failed to execute count query: " . $countStmt->error);
-        }
-        
-        $countResult = $countStmt->get_result();
-        $total = $countResult->fetch_assoc()['total'];
+        $paginationParams = array_merge($params, [$perPage, $offset]);
         
         // Get products
-        $stmt = $conn->prepare($query);
-        if ($stmt === false) {
-            throw new Exception("Failed to prepare products statement: " . $conn->error);
-        }
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($paginationParams);
         
-        if (!empty($params)) {
-            $stmt->bind_param($types, ...$params);
-        }
-        
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to execute products query: " . $stmt->error);
-        }
-        
-        $result = $stmt->get_result();
         $products = [];
-        
-        while ($row = $result->fetch_assoc()) {
+        while ($row = $stmt->fetch()) {
             $products[] = [
                 'id' => $row['id'],
-                'manufacture_id' => $row['manufacture_id'],
-                'product_name' => $row['product_name'],
+                'manufacturer_id' => $row['manufacturer_id'],
+                'product_name' => $row['name'],
                 'category_id' => $row['category_id'],
-                'price' => $row['price'],
+                'price' => (float)$row['price'],
+                'min_price' => (float)$row['min_price'],
+                'max_price' => (float)$row['max_price'],
                 'description' => $row['description'],
-                'image_url' => $row['main_image'],
-                'category_name' => $row['category_name']
+                'image_url' => $row['image_url'],
+                'category_name' => $row['category_name'] ?? 'Uncategorized',
+                'subcategory_name' => $row['subcategory_name'] ?? '',
+                'tags' => $row['tags'],
+                'image_count' => $row['image_count'],
+                'size_count' => $row['size_count'],
+                'color_count' => $row['color_count'],
+                'created_at' => $row['created_at']
             ];
         }
         
         return [
             'success' => true,
             'products' => $products,
-            'total' => $total,
-            'pages' => ceil($total / $perPage)
+            'total' => (int)$total,
+            'pages' => ceil($total / $perPage),
+            'current_page' => $page,
+            'per_page' => $perPage
         ];
         
     } catch (Exception $e) {
-        logError($e->getMessage());
+        logError("getProducts error: " . $e->getMessage());
         return [
             'success' => false,
             'message' => $e->getMessage()
         ];
-    } finally {
-        if ($stmt !== null && $stmt !== false) {
-            $stmt->close();
-        }
-        if ($countStmt !== null && $countStmt !== false) {
-            $countStmt->close();
-        }
     }
 }
 
 // Get all categories
 function getCategories() {
-    global $conn;
-    $stmt = null;
+    global $pdo;
     
     try {
-        $query = "SELECT category_id, name, description FROM category ORDER BY name ASC";
-        $stmt = $conn->prepare($query);
+        $query = "SELECT id, name, description FROM categories WHERE is_active = 1 ORDER BY name ASC";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute();
         
-        if ($stmt === false) {
-            throw new Exception("Failed to prepare categories statement: " . $conn->error);
-        }
-        
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to execute categories query: " . $stmt->error);
-        }
-        
-        $result = $stmt->get_result();
         $categories = [];
-        
-        while ($row = $result->fetch_assoc()) {
+        while ($row = $stmt->fetch()) {
             $categories[] = [
-                'id' => $row['category_id'],
+                'id' => $row['id'],
                 'name' => $row['name'],
                 'description' => $row['description']
             ];
@@ -186,99 +192,166 @@ function getCategories() {
         ];
         
     } catch (Exception $e) {
-        logError($e->getMessage());
+        logError("getCategories error: " . $e->getMessage());
         return [
             'success' => false,
             'message' => $e->getMessage()
         ];
-    } finally {
-        if ($stmt !== null && $stmt !== false) {
-            $stmt->close();
-        }
+    }
+}
+
+// Get all available colors
+function getAvailableColors() {
+    global $pdo;
+    
+    try {
+        // Use Product class to get colors with proper color code fixing
+        require_once __DIR__ . '/../manufacture/includes/Product.class.php';
+        $productObj = new Product($pdo);
+        $colors = $productObj->getAvailableColors();
+        
+        return [
+            'success' => true,
+            'colors' => $colors
+        ];
+        
+    } catch (Exception $e) {
+        logError("getAvailableColors error: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => $e->getMessage()
+        ];
+    }
+}
+
+// Get price range from all products
+function getPriceRange() {
+    global $pdo;
+    
+    try {
+        $query = "SELECT 
+                    MIN(ps.selling_price) as min_price,
+                    MAX(ps.selling_price) as max_price
+                  FROM product_sizes ps
+                  JOIN products p ON ps.product_id = p.id
+                  WHERE ps.is_active = 1 AND p.is_active = 1";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute();
+        
+        $result = $stmt->fetch();
+        
+        return [
+            'success' => true,
+            'min_price' => (float)($result['min_price'] ?? 0),
+            'max_price' => (float)($result['max_price'] ?? 1000)
+        ];
+        
+    } catch (Exception $e) {
+        logError("getPriceRange error: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => $e->getMessage(),
+            'min_price' => 0,
+            'max_price' => 1000
+        ];
     }
 }
 
 // Handle product operations
-$operation = $_POST['operation'] ?? null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    
+    // Check if user is logged in (assuming session-based auth)
+    session_start();
+    if (!isset($_SESSION['user_id'])) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Please login to perform this operation'
+        ]);
+        exit;
+    }
+    
+    $user_id = $_SESSION['user_id'];
+    $operation = $_POST['operation'] ?? null;
 
-switch ($operation) {
-    case 'delete':
-        if (!$user_id) {
-            die(json_encode([
-                'success' => false,
-                'message' => 'Please login to delete products'
-            ]));
-        }
+    switch ($operation) {
+        case 'delete':
+            $product_id = $_POST['id'] ?? null;
 
-        $product_id = $_POST['id'] ?? null;
-
-        if (!$product_id) {
-            die(json_encode([
-                'success' => false,
-                'message' => 'Product ID is required'
-            ]));
-        }
-
-        try {
-            // Start transaction
-            $conn->begin_transaction();
-
-            // First verify the product belongs to the manufacturer
-            $check_stmt = $conn->prepare("SELECT id FROM product WHERE id = ? AND manufacture_id = ?");
-            if ($check_stmt === false) {
-                throw new Exception("Failed to prepare product check statement: " . $conn->error);
+            if (!$product_id) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Product ID is required'
+                ]);
+                exit;
             }
-            $check_stmt->bind_param("ii", $product_id, $user_id);
-            $check_stmt->execute();
-            $result = $check_stmt->get_result();
-            
-            if ($result->num_rows === 0) {
-                throw new Exception("Product not found or you don't have permission to delete it");
-            }
-            $check_stmt->close();
 
-            // Delete all cart items for this product
-            $cart_stmt = $conn->prepare("DELETE FROM cart WHERE product_id = ?");
-            if ($cart_stmt === false) {
-                throw new Exception("Failed to prepare cart delete statement: " . $conn->error);
-            }
-            $cart_stmt->bind_param("i", $product_id);
-            $cart_stmt->execute();
-            $cart_stmt->close();
+            try {
+                // Start transaction
+                $pdo->beginTransaction();
 
-            // Now delete the product
-            $product_stmt = $conn->prepare("DELETE FROM product WHERE id = ?");
-            if ($product_stmt === false) {
-                throw new Exception("Failed to prepare product delete statement: " . $conn->error);
-            }
-            $product_stmt->bind_param("i", $product_id);
-            $product_stmt->execute();
-            
-            if ($product_stmt->affected_rows === 0) {
-                throw new Exception("Failed to delete product");
-            }
-            $product_stmt->close();
+                // First verify the product belongs to the manufacturer
+                $check_stmt = $pdo->prepare("SELECT id FROM products WHERE id = ? AND manufacturer_id = ?");
+                $check_stmt->execute([$product_id, $user_id]);
+                
+                if ($check_stmt->rowCount() === 0) {
+                    throw new Exception("Product not found or you don't have permission to delete it");
+                }
 
-            // Commit transaction
-            $conn->commit();
+                // Delete all cart items for this product
+                $cart_stmt = $pdo->prepare("DELETE FROM cart WHERE product_id = ?");
+                $cart_stmt->execute([$product_id]);
 
+                // Delete product images
+                $images_stmt = $pdo->prepare("DELETE FROM product_images WHERE product_id = ?");
+                $images_stmt->execute([$product_id]);
+
+                // Delete product sizes and colors
+                $sizes_stmt = $pdo->prepare("DELETE FROM product_sizes WHERE product_id = ?");
+                $sizes_stmt->execute([$product_id]);
+                
+                $colors_stmt = $pdo->prepare("DELETE FROM product_colors WHERE product_id = ?");
+                $colors_stmt->execute([$product_id]);
+
+                // Delete inventory records
+                $inventory_stmt = $pdo->prepare("DELETE FROM inventory WHERE product_id = ?");
+                $inventory_stmt->execute([$product_id]);
+
+                // Finally delete the product
+                $product_stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
+                $product_stmt->execute([$product_id]);
+                
+                if ($product_stmt->rowCount() === 0) {
+                    throw new Exception("Failed to delete product");
+                }
+
+                // Commit transaction
+                $pdo->commit();
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Product and related data deleted successfully'
+                ]);
+
+            } catch (Exception $e) {
+                // Rollback transaction on error
+                if ($pdo->inTransaction()) {
+                    $pdo->rollback();
+                }
+                logError("Product deletion error: " . $e->getMessage());
+                echo json_encode([
+                    'success' => false,
+                    'message' => $e->getMessage()
+                ]);
+            }
+            break;
+
+        default:
             echo json_encode([
-                'success' => true,
-                'message' => 'Product and related cart items deleted successfully'
-            ]);
-
-        } catch (Exception $e) {
-            // Rollback transaction on error
-            $conn->rollback();
-            logError($e->getMessage());
-            echo json_encode([
                 'success' => false,
-                'message' => $e->getMessage()
+                'message' => 'Invalid operation'
             ]);
-        }
-        break;
-
-    default:
-        // Handle other operations
-        break;
+            break;
+    }
+    exit;
 } 

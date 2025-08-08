@@ -1,5 +1,8 @@
 <?php
-require_once __DIR__ . '/includes/db_connection.php';
+// Prevent any output before JSON response
+ob_start();
+
+require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/auth/user_auth.php';
 
 // Function to log errors
@@ -14,6 +17,8 @@ function logError($message) {
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Clear any output buffer and set JSON header
+    ob_clean();
     header('Content-Type: application/json');
     
     try {
@@ -25,37 +30,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $remember = isset($_POST['remember']);
                     
                     // Get user with role
-                    $stmt = $conn->prepare("SELECT id, name, password, role FROM users WHERE email = ?");
-                    if (!$stmt) {
-                        throw new Exception('Database error: ' . $conn->error);
-                    }
+                    $stmt = $pdo->prepare("SELECT id, name, password, role, profile_photo FROM users WHERE email = ?");
+                    $stmt->execute([$email]);
                     
-                    $stmt->bind_param("s", $email);
-                    $stmt->execute();
-                    $result = $stmt->get_result();
-                    
-                    if ($result->num_rows !== 1) {
+                    if ($stmt->rowCount() !== 1) {
                         throw new Exception('Invalid email or password');
                     }
                     
-                    $user = $result->fetch_assoc();
+                    $user = $stmt->fetch();
                     
                     // Verify password
                     if (!password_verify($password, $user['password'])) {
                         throw new Exception('Invalid email or password');
                     }
                     
-                    // Start session
-                    session_start();
+                    // Ensure session is started (it should already be from database.php)
+                    if (session_status() === PHP_SESSION_NONE) {
+                        session_start();
+                    }
                     
                     // Set session variables
                     $_SESSION['user_id'] = $user['id'];
                     $_SESSION['user_name'] = $user['name'];
                     $_SESSION['user_role'] = $user['role'];
+                    $_SESSION['profile_photo'] = $user['profile_photo'] ?? null;
                     
-                    // If user is a manufacturer, set manufacture_id
+                    // If user is a manufacturer, set manufacturer_id
                     if ($user['role'] === 'Manufacture') {
-                        $_SESSION['manufacture_id'] = $user['id'];
+                        $_SESSION['manufacturer_id'] = $user['id'];
                     }
                     
                     // Handle remember me
@@ -63,9 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $token = bin2hex(random_bytes(32));
                         $expiry = date('Y-m-d H:i:s', time() + 60 * 60 * 24 * 30); // 30 days
                         
-                        $stmt = $conn->prepare("UPDATE users SET remember_token = ?, token_expiry = ? WHERE id = ?");
-                        $stmt->bind_param("ssi", $token, $expiry, $user['id']);
-                        $stmt->execute();
+                        $stmt = $pdo->prepare("UPDATE users SET remember_token = ?, token_expiry = ? WHERE id = ?");
+                        $stmt->execute([$token, $expiry, $user['id']]);
                         
                         setcookie('remember_token', $token, time() + 60 * 60 * 24 * 30, '/', '', true, true);
                     }
@@ -73,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode([
                         'success' => true, 
                         'message' => 'Login successful',
-                        'redirect' => $user['role'] === 'Manufacture' ? 'manufactor/dashboard.php' : 'product.php'
+                        'redirect' => $user['role'] === 'Manufacture' ? 'manufacture/dashboard.php' : 'product.php'
                     ]);
                     break;
                     
@@ -95,9 +96,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $result = registerUser($name, $email, $password);
                     
                     if ($result['success']) {
-                        // Set cookies for auto-login after registration
-                        setcookie('user_id', $result['user_id'], time() + (86400 * 30), "/");
-                        setcookie('user_name', $result['name'], time() + (86400 * 30), "/");
+                        // Ensure session is started (it should already be from database.php)
+                        if (session_status() === PHP_SESSION_NONE) {
+                            session_start();
+                        }
+                        
+                        // Set session variables
+                        $_SESSION['user_id'] = $result['user_id'];
+                        $_SESSION['user_name'] = $result['name'];
+                        $_SESSION['user_role'] = 'Customer';
+                        $_SESSION['profile_photo'] = null; // New users don't have profile photo yet
                         
                         echo json_encode([
                             'success' => true, 
@@ -116,8 +124,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new Exception('No action specified');
         }
     } catch (Exception $e) {
+        // Clear any output buffer to prevent HTML before JSON
+        ob_clean();
         logError($e->getMessage());
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    } catch (Error $e) {
+        // Handle PHP fatal errors
+        ob_clean();
+        logError('PHP Error: ' . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'A system error occurred. Please try again.']);
     }
     exit;
 }

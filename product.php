@@ -3,14 +3,17 @@ require_once 'includes/product_operations.php';
 
 // Get filter parameters
 $category = $_GET['category'] ?? null;
+$color = $_GET['color'] ?? null;
 $minPrice = isset($_GET['min_price']) ? floatval($_GET['min_price']) : null;
 $maxPrice = isset($_GET['max_price']) ? floatval($_GET['max_price']) : null;
 $sort = $_GET['sort'] ?? 'featured';
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 
-// Get products and categories
-$productsResult = getProducts($category, $minPrice, $maxPrice, $sort, $page);
+// Get products, categories, colors, and price range
+$productsResult = getProducts($category, $minPrice, $maxPrice, $sort, $page, 12, $color);
 $categoriesResult = getCategories();
+$colorsResult = getAvailableColors();
+$priceRangeResult = getPriceRange();
 
 // Handle errors
 if (!$productsResult['success']) {
@@ -18,6 +21,9 @@ if (!$productsResult['success']) {
 }
 if (!$categoriesResult['success']) {
     $error = $categoriesResult['message'];
+}
+if (!$colorsResult['success']) {
+    $error = $colorsResult['message'];
 }
 
 include 'components/header.php';
@@ -98,6 +104,29 @@ include 'components/header.php';
         /* Existing thumb styles */
     }
 
+    /* Color circle styles */
+    .color-circle {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: inline-block;
+        border: 2px solid #e5e7eb;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    
+    .color-circle:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    
+    .color-circle.active {
+        border-color: #2563eb;
+        border-width: 3px;
+        transform: scale(1.1);
+    }
+
     /* Custom Pagination Styles */
     .pagination .page-item .page-link {
         border-radius: 8px !important; /* Rounded corners */
@@ -160,11 +189,19 @@ include 'components/header.php';
             <div class="card mb-4">
                 <div class="card-body">
                     <h6 class="fw-bold mb-3">Price Range</h6>
-                    <input type="range" class="form-range" min="0" max="1000" id="priceRange" 
-                           value="<?php echo $minPrice ?? 0; ?>">
+                    <?php 
+                    $priceMin = $priceRangeResult['success'] ? $priceRangeResult['min_price'] : 0;
+                    $priceMax = $priceRangeResult['success'] ? $priceRangeResult['max_price'] : 1000;
+                    $currentMinPrice = $minPrice ?? $priceMin;
+                    ?>
+                    <input type="range" class="form-range" 
+                           min="<?php echo $priceMin; ?>" 
+                           max="<?php echo $priceMax; ?>" 
+                           id="priceRange" 
+                           value="<?php echo $currentMinPrice; ?>">
                     <div class="d-flex justify-content-between">
-                        <span id="minPriceDisplay">$<?php echo $minPrice ?? 0; ?></span>
-                        <span id="maxPriceDisplay">$1000</span>
+                        <span id="minPriceDisplay">Rs. <?php echo number_format($currentMinPrice, 2); ?></span>
+                        <span id="maxPriceDisplay">Rs. <?php echo number_format($priceMax, 2); ?></span>
                     </div>
                 </div>
             </div>
@@ -174,12 +211,20 @@ include 'components/header.php';
                 <div class="card-body">
                     <h6 class="fw-bold mb-3">Colors</h6>
                     <div class="d-flex flex-wrap gap-2">
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: red;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: blue;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: green;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: yellow;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: purple;"></span>
-                        <span class="rounded-circle d-inline-block" style="width: 25px; height: 25px; background-color: black;"></span>
+                        <?php if ($colorsResult['success']): ?>
+                            <?php foreach ($colorsResult['colors'] as $colorOption): ?>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['color' => $colorOption['name'], 'page' => 1])); ?>" 
+                                   class="text-decoration-none" 
+                                   title="<?php echo htmlspecialchars($colorOption['name']); ?>">
+                                    <span class="color-circle <?php echo $color === $colorOption['name'] ? 'active' : ''; ?>" 
+                                          style="background-color: <?php echo htmlspecialchars($colorOption['code']); ?>;"></span>
+                                </a>
+                            <?php endforeach; ?>
+                            <?php if ($color): ?>
+                                <a href="?<?php echo http_build_query(array_diff_key($_GET, ['color' => ''])); ?>" 
+                                   class="btn btn-sm btn-outline-secondary ms-2">Clear</a>
+                            <?php endif; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -191,7 +236,11 @@ include 'components/header.php';
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5>
                     <?php if ($productsResult['success']): ?>
-                        Showing <?php echo ($page - 1) * 12 + 1; ?>-<?php echo min($page * 12, $productsResult['total']); ?> 
+                        <?php 
+                        $startItem = ($productsResult['current_page'] - 1) * $productsResult['per_page'] + 1;
+                        $endItem = min($productsResult['current_page'] * $productsResult['per_page'], $productsResult['total']);
+                        ?>
+                        Showing <?php echo $startItem; ?>-<?php echo $endItem; ?> 
                         of <?php echo $productsResult['total']; ?> products
                     <?php endif; ?>
                 </h5>
@@ -199,12 +248,33 @@ include 'components/header.php';
                     <div class="dropdown me-2">
                         <button class="btn btn-light dropdown-toggle sort-button" type="button" id="dropdownMenuButton1" 
                                 data-bs-toggle="dropdown" aria-expanded="false">
-                            Sort by: <?php echo ucfirst(str_replace('_', ' ', $sort)); ?>
+                            Sort by: <?php 
+                            $sortNames = [
+                                'featured' => 'Featured',
+                                'price_low' => 'Price: Low to High',
+                                'price_high' => 'Price: High to Low',
+                                'name_asc' => 'Name: A to Z',
+                                'name_desc' => 'Name: Z to A',
+                                'newest' => 'Newest First',
+                                'oldest' => 'Oldest First'
+                            ];
+                            echo $sortNames[$sort] ?? 'Featured';
+                            ?>
                         </button>
                         <ul class="dropdown-menu" aria-labelledby="dropdownMenuButton1">
-                            <li><a class="dropdown-item" href="?sort=featured<?php echo $category ? '&category=' . urlencode($category) : ''; ?>">Featured</a></li>
-                            <li><a class="dropdown-item" href="?sort=price_low<?php echo $category ? '&category=' . urlencode($category) : ''; ?>">Price: Low to High</a></li>
-                            <li><a class="dropdown-item" href="?sort=price_high<?php echo $category ? '&category=' . urlencode($category) : ''; ?>">Price: High to Low</a></li>
+                            <?php
+                            $currentParams = $_GET;
+                            unset($currentParams['sort']);
+                            $baseQuery = http_build_query($currentParams);
+                            $baseQuery = $baseQuery ? '&' . $baseQuery : '';
+                            ?>
+                            <li><a class="dropdown-item" href="?sort=featured<?php echo $baseQuery; ?>">Featured</a></li>
+                            <li><a class="dropdown-item" href="?sort=price_low<?php echo $baseQuery; ?>">Price: Low to High</a></li>
+                            <li><a class="dropdown-item" href="?sort=price_high<?php echo $baseQuery; ?>">Price: High to Low</a></li>
+                            <li><a class="dropdown-item" href="?sort=name_asc<?php echo $baseQuery; ?>">Name: A to Z</a></li>
+                            <li><a class="dropdown-item" href="?sort=name_desc<?php echo $baseQuery; ?>">Name: Z to A</a></li>
+                            <li><a class="dropdown-item" href="?sort=newest<?php echo $baseQuery; ?>">Newest First</a></li>
+                            <li><a class="dropdown-item" href="?sort=oldest<?php echo $baseQuery; ?>">Oldest First</a></li>
                         </ul>
                     </div>
                 </div>
@@ -222,15 +292,24 @@ include 'components/header.php';
                     <?php foreach ($productsResult['products'] as $product): ?>
                         <div class="col">
                             <div class="card h-100">
-                                <img src="<?php echo htmlspecialchars($product['image_url']); ?>" 
-                                     class="card-img-top" 
-                                     alt="<?php echo htmlspecialchars($product['product_name']); ?>">
-                                <div class="card-body">
-                                    <h6 class="card-title mb-1"><?php echo htmlspecialchars($product['product_name']); ?></h6>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <p class="card-text mb-0">Rs. <?php echo number_format($product['price'], 2); ?></p>
+                                <a href="product-details.php?id=<?php echo $product['id']; ?>" class="text-decoration-none">
+                                    <img src="<?php echo htmlspecialchars($product['image_url']); ?>" 
+                                         class="card-img-top" 
+                                         alt="<?php echo htmlspecialchars($product['product_name']); ?>"
+                                         style="height: 200px; object-fit: cover;">
+                                </a>
+                                <div class="card-body d-flex flex-column">
+                                    <a href="product-details.php?id=<?php echo $product['id']; ?>" class="text-decoration-none text-dark">
+                                        <h6 class="card-title mb-2"><?php echo htmlspecialchars($product['product_name']); ?></h6>
+                                    </a>
+                                    <div class="mt-auto">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="text-primary mb-0">Rs. <?php echo number_format($product['price'], 2); ?></h5>
+                                        </div>
                                         <button onclick="addToCart(<?php echo $product['id']; ?>)" 
-                                                class="btn btn-primary rounded-pill">Add to Cart</button>
+                                                class="btn btn-primary w-100 rounded-pill">
+                                            <i class="fas fa-shopping-cart me-2"></i>Add to Cart
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -327,8 +406,7 @@ include 'components/header.php';
     const maxPriceDisplay = document.getElementById('maxPriceDisplay');
     
     function updatePriceDisplay(value) {
-        minPriceDisplay.textContent = `$${value}`; // Update minimum price display
-        // maxPriceDisplay.textContent = `$1000`; // Maximum price is static
+        minPriceDisplay.textContent = `Rs. ${parseFloat(value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`; // Update minimum price display
     }
 
     function updateRangeProgress(rangeInput) {
@@ -345,16 +423,34 @@ include 'components/header.php';
             updatePriceDisplay(event.target.value); // Update price display
         });
 
+        // Add change event to filter products when user releases the slider
+        priceRange.addEventListener('change', (event) => {
+            const value = event.target.value;
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('min_price', value);
+            currentUrl.searchParams.set('page', '1'); // Reset to first page
+            window.location.href = currentUrl.toString();
+        });
+
          // Set initial text value based on default slider value
          updatePriceDisplay(priceRange.value);
     }
 
     // Add to Cart functionality
     function addToCart(productId) {
-        if (!document.cookie.includes('user_id')) {
+        console.log('addToCart called with productId:', productId);
+        
+        // Check if user is logged in using PHP variable
+        <?php if (isset($_SESSION['user_id'])): ?>
+            console.log('User is logged in (PHP check), proceeding with add to cart');
+            addToCartAction(productId);
+        <?php else: ?>
+            console.log('User not logged in (PHP check), redirecting to login');
             window.location.href = 'login.php?tab=signin';
-            return;
-        }
+        <?php endif; ?>
+    }
+
+    function addToCartAction(productId) {
 
         const formData = new FormData();
         formData.append('action', 'add');

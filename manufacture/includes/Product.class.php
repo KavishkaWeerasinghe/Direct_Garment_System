@@ -169,7 +169,67 @@ class Product {
         $sql = "SELECT * FROM product_colors WHERE product_id = :product_id ORDER BY color_name";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['product_id' => $product_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $colors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Fix incomplete color codes
+        foreach ($colors as &$color) {
+            $color['color_code'] = $this->fixColorCode($color['color_code'], $color['color_name']);
+        }
+        
+        return $colors;
+    }
+    
+    // Fix incomplete color codes
+    private function fixColorCode($colorCode, $colorName) {
+        // If color code is already a valid hex, return it
+        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $colorCode)) {
+            return $colorCode;
+        }
+        
+        // If it's an incomplete rgb format, convert based on color name
+        if (strpos($colorCode, 'rgb(') === 0) {
+            return $this->getColorCodeByName($colorName);
+        }
+        
+        // Default fallback based on color name
+        return $this->getColorCodeByName($colorName);
+    }
+    
+    // Get proper hex color code by color name
+    private function getColorCodeByName($colorName) {
+        $colorMap = [
+            'Red' => '#FF0000',
+            'Blue' => '#0000FF',
+            'Green' => '#008000',
+            'Yellow' => '#FFFF00',
+            'Black' => '#000000',
+            'White' => '#FFFFFF',
+            'Gray' => '#808080',
+            'Grey' => '#808080',
+            'Brown' => '#A52A2A',
+            'Pink' => '#FFC0CB',
+            'Purple' => '#800080',
+            'Orange' => '#FFA500',
+            'Cyan' => '#00FFFF',
+            'Magenta' => '#FF00FF',
+            'Navy' => '#000080',
+            'Maroon' => '#800000',
+            'Lime' => '#00FF00',
+            'Teal' => '#008080',
+            'Aqua' => '#00FFFF',
+            'Silver' => '#C0C0C0',
+            'Gold' => '#FFD700',
+            'Indigo' => '#4B0082',
+            'Violet' => '#EE82EE',
+            'Coral' => '#FF7F50',
+            'Salmon' => '#FA8072',
+            'Khaki' => '#F0E68C',
+            'Olive' => '#808000',
+            'Turquoise' => '#40E0D0',
+            'Plum' => '#DDA0DD'
+        ];
+        
+        return $colorMap[strtolower($colorName)] ?? '#808080'; // Default to gray if not found
     }
     
     // Update main image
@@ -406,6 +466,29 @@ class Product {
             ['name' => 'Navy', 'code' => '#000080'],
             ['name' => 'Maroon', 'code' => '#800000']
         ];
+    }
+    
+    // Get available colors from database (for filtering)
+    public function getAvailableColors() {
+        try {
+            $sql = "SELECT DISTINCT color_name, color_code FROM product_colors ORDER BY color_name ASC LIMIT 20";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute();
+            
+            $colors = [];
+            while ($row = $stmt->fetch()) {
+                $colors[] = [
+                    'name' => $row['color_name'],
+                    'code' => $this->fixColorCode($row['color_code'], $row['color_name'])
+                ];
+            }
+            
+            return $colors;
+            
+        } catch (Exception $e) {
+            error_log("Error getting available colors: " . $e->getMessage());
+            return [];
+        }
     }
     
     // Get common sizes

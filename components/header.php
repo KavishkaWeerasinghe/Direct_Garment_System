@@ -114,10 +114,10 @@
                 </ul>
                 <div class="d-flex align-items-center">
                     <?php
-                    if (isset($_COOKIE['user_id'])) {
+                    if (isset($_SESSION['user_id'])) {
                         // User is logged in
-                        $profile_img = isset($_COOKIE['profile_photo']) && !empty($_COOKIE['profile_photo']) 
-                            ? $_COOKIE['profile_photo'] 
+                        $profile_img = isset($_SESSION['profile_photo']) && !empty($_SESSION['profile_photo']) 
+                            ? $_SESSION['profile_photo'] 
                             : 'src/images/profile.jpeg';
                         ?>
                         <a href="cart.php" class="cart-icon text-decoration-none">

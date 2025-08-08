@@ -1,0 +1,80 @@
+# Database files
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+
+# Log files
+*.log
+logs/
+*.log.*
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+config/env.template
+
+# Upload directories (user-generated content)
+uploads/
+manufacture/uploads/
+manufacture/products/uploads/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# PHP specific
+*.php~
+*.php.bak
+*.php.swp
+
+# Cache files
+cache/
+*.cache
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Configuration files with sensitive data
+config.php
+database.php
+environment.php
+
+# Session files
+sessions/
+*.sess
+
+# Error logs
+error_log
+php_errors.log
+
+# Composer
+vendor/
+composer.lock
+
+
+# Test files
+test_*.php
+debug_*.php
